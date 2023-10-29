@@ -41,7 +41,7 @@ int find_in_path(char *path, char *to_find) {
         if (strcmp(de.name, ".") == 0) { continue; }
         if (strcmp(de.name, "..") == 0) { continue; }
         if (strcmp(de.name, to_find) == 0) {
-            fprintf(0, "%s%s\n", path, to_find);
+            fprintf(1, "%s%s\n", path, to_find);
             continue;
         }
         memmove(start, de.name, DIRSIZ);
