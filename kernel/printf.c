@@ -118,6 +118,7 @@ printf(char *fmt, ...)
 void
 panic(char *s)
 {
+  backtrace();
   pr.locking = 0;
   printf("panic: ");
   printf(s);
@@ -132,4 +133,28 @@ printfinit(void)
 {
   initlock(&pr.lock, "pr");
   pr.locking = 1;
+}
+
+
+static inline uint64
+r_fp()
+{
+  uint64 x;
+  asm volatile("mv %0, s0" : "=r" (x) );
+  return x;
+}
+
+
+void
+backtrace(void)
+{
+  printf("backtrace:\n");
+  uint64 fp = r_fp();
+  uint64 page_start = PGROUNDDOWN(fp);
+  uint64 next_fp = *(uint64 *) (fp - 16);
+  while (next_fp >= page_start) {
+    printf("%p\n", *(uint64 *) (fp - 8));
+    fp = next_fp;
+    next_fp = *(uint64 *) (next_fp - 16);
+  }
 }
