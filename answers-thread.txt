@@ -1,0 +1,1 @@
+Without locks two threads can put a different key in the same spot, i.e. call insert() with different key-value pair but with the same table.
