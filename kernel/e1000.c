@@ -12,14 +12,15 @@
 static struct tx_desc tx_ring[TX_RING_SIZE] __attribute__((aligned(16)));
 static struct mbuf *tx_mbufs[TX_RING_SIZE];
 
-#define RX_RING_SIZE 16
+#define RX_RING_SIZE 32
 static struct rx_desc rx_ring[RX_RING_SIZE] __attribute__((aligned(16)));
 static struct mbuf *rx_mbufs[RX_RING_SIZE];
 
 // remember where the e1000's registers live.
 static volatile uint32 *regs;
 
-struct spinlock e1000_lock;
+struct spinlock e1000_tx_lock;
+struct spinlock e1000_rx_lock;
 
 // called by pci_init().
 // xregs is the memory address at which the
@@ -29,7 +30,8 @@ e1000_init(uint32 *xregs)
 {
   int i;
 
-  initlock(&e1000_lock, "e1000");
+  initlock(&e1000_tx_lock, "e1000_tx");
+  initlock(&e1000_rx_lock, "e1000_rx");
 
   regs = xregs;
 
@@ -95,13 +97,24 @@ e1000_init(uint32 *xregs)
 int
 e1000_transmit(struct mbuf *m)
 {
-  //
-  // Your code here.
-  //
-  // the mbuf contains an ethernet frame; program it into
-  // the TX descriptor ring so that the e1000 sends it. Stash
-  // a pointer so that it can be freed after sending.
-  //
+  int tx_idx;
+
+  acquire(&e1000_tx_lock);
+  tx_idx = regs[E1000_TDT];
+  if(!(tx_ring[tx_idx].status & E1000_TXD_STAT_DD))
+    return -1;
+  if (tx_mbufs[tx_idx])
+    mbuffree(tx_mbufs[tx_idx]);
+  tx_mbufs[tx_idx] = m;
+
+  tx_ring[tx_idx].addr = (uint64)m->head;
+  tx_ring[tx_idx].length = m->len;
+  tx_ring[tx_idx].cmd = E1000_TXD_CMD_RS;
+  if(m->next == 0)
+    tx_ring[tx_idx].cmd |= E1000_TXD_CMD_EOP;
+
+  regs[E1000_TDT] = (regs[E1000_TDT]+1) % TX_RING_SIZE;
+  release(&e1000_tx_lock);
   
   return 0;
 }
@@ -109,12 +122,25 @@ e1000_transmit(struct mbuf *m)
 static void
 e1000_recv(void)
 {
-  //
-  // Your code here.
-  //
-  // Check for packets that have arrived from the e1000
-  // Create and deliver an mbuf for each packet (using net_rx()).
-  //
+  int rx_idx;
+
+  acquire(&e1000_rx_lock);
+  while(1){
+    rx_idx = (regs[E1000_RDT]+1) % RX_RING_SIZE;
+    if(!(rx_ring[rx_idx].status & E1000_RXD_STAT_DD)){
+      release(&e1000_rx_lock);
+      return;
+    }
+    
+    rx_mbufs[rx_idx]->len = rx_ring[rx_idx].length;
+    net_rx(rx_mbufs[rx_idx]);
+
+    rx_mbufs[rx_idx] = mbufalloc(0);
+    rx_ring[rx_idx].addr = (uint64)rx_mbufs[rx_idx]->head;
+    rx_ring[rx_idx].status = 0;
+
+    regs[E1000_RDT] = rx_idx;
+  }
 }
 
 void
