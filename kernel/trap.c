@@ -65,6 +65,10 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause() == 15){
+    // Store/AMO page fault
+    if (handle_potential_cow(p->pagetable, PGROUNDDOWN(r_stval())) != 0)
+      setkilled(p);
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
